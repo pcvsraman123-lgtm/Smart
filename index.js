@@ -1,14 +1,15 @@
 const express = require("express");
-const cors = require("cors");
 const admin = require("firebase-admin");
+const cors = require("cors");
+
 const app = express();
-
-app.use(cors());
 app.use(express.json());
+app.use(cors());
 
-// Firebase admin
-const serviceAccount = require("./serviceAccount.json");
+// Load Firebase service account from ENV
+let serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
+// Init Firebase Admin
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: "https://home-62121-default-rtdb.firebaseio.com"
@@ -16,54 +17,54 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// -------------------------------
-// DEVICE SYNC: ESP pulls commands
-// -------------------------------
-app.get("/device/sync", async (req, res) => {
-  const snap = await db.ref("devices").once("value");
-  res.json(snap.val());
-});
+// Firebase refs
+const relayRef = db.ref("devices/relay");
+const pirRef = db.ref("devices/pir");
+const latchRef = db.ref("devices/latch");
+const modeRef = db.ref("devices/mode");
 
-// ------------------------------------
-// DEVICE UPDATE: ESP pushes new events
-// ------------------------------------
-app.post("/device/update", async (req, res) => {
-  const data = req.body;   // relay, pir, latch, mode
-  await db.ref("devices").update(data);
-  res.json({ status: "ok" });
-});
-
-// -------------------------------
-// WEB / SMARTTHINGS CONTROL
-// -------------------------------
-app.post("/control/on", async (req, res) => {
-  await db.ref("devices").update({ relay: "1", mode: "manual" });
-  res.json({ status: "relay_on" });
-});
-
-app.post("/control/off", async (req, res) => {
-  await db.ref("devices").update({ relay: "0", mode: "manual" });
-  res.json({ status: "relay_off" });
-});
-
-app.post("/control/mode/auto", async (req, res) => {
-  await db.ref("devices").update({ mode: "auto" });
-  res.json({ status: "auto_mode" });
-});
-
-app.post("/control/mode/manual", async (req, res) => {
-  await db.ref("devices").update({ mode: "manual" });
-  res.json({ status: "manual_mode" });
-});
-
-// -------------------------------
-// WEB UI FULL STATE
-// -------------------------------
+// ---- GET STATE ----
 app.get("/state", async (req, res) => {
-  const data = await db.ref("devices").once("value");
-  res.json(data.val());
+  const relay = (await relayRef.get()).val() || "0";
+  const pir = (await pirRef.get()).val() || "Idle";
+  const latch = (await latchRef.get()).val() || "off";
+  const mode = (await modeRef.get()).val() || "auto";
+
+  res.json({ relay, pir, latch, mode });
 });
 
-// -------------------------------
+// ---- UPDATE RELAY ----
+app.post("/relay", async (req, res) => {
+  const { state } = req.body;
+  await relayRef.set(state);
+  res.json({ success: true });
+});
+
+// ---- UPDATE PIR ----
+app.post("/pir", async (req, res) => {
+  const { value } = req.body;
+  await pirRef.set(value);
+  res.json({ success: true });
+});
+
+// ---- UPDATE LATCH ----
+app.post("/latch", async (req, res) => {
+  const { state } = req.body;
+  await latchRef.set(state);
+  res.json({ success: true });
+});
+
+// ---- UPDATE MODE ----
+app.post("/mode", async (req, res) => {
+  const { mode } = req.body;
+  await modeRef.set(mode);
+  res.json({ success: true });
+});
+
+// ---- ROOT ----
+app.get("/", (req, res) => {
+  res.send("Smart Home Backend Running ✔");
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("🚀 Running on " + PORT));
+app.listen(PORT, () => console.log("🚀 Server running on Port", PORT));
